@@ -1,14 +1,12 @@
-title: no style, please! # name of the site
-author: Riccardo Graziosi # name of site's author
-email: riccardo.graziosi97@gmail.com # email of site's author
-url: https://riggraz.dev # root address of the site
+title: Jiang Xuzhen's BLOG! # name of the site
+author: Jiang Xuzhen # name of site's author
+email: jxz0316@foxmail.com # email of site's author
+url: https://j-xz.github.io/blog/ # root address of the site
 baseurl: "/blog" # subpath of the site, e.g. "/blog" (leave it blank "" if you're site shouldn't use a subpath)
 description: > # description of the site (multiple lines allowed)
-  A (nearly) no-CSS, fast, minimalist Jekyll theme.
+    This is Jiang Xuzhen's BLOG. Just for fun!
 
-permalink: /:slug.html
-
-favicon: "logo.png" # name+extension of favicon (which must be put on the root folder)
+favicon: "logo.jpeg" # name+extension of favicon (which must be put on the root folder)
 # goat_counter: "yoursitename" # put your GoatCounter name if you want to use GoatCounter analytics
 
 theme: no-style-please # if you are using GitHub Pages, change it to remote_theme: riggraz/no-style-please

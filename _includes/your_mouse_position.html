@@ -1,0 +1,8 @@
+<html>
+	<p id="demo"> "试下动动你的鼠标"</p>
+<script>
+	document.addEventListener("mousemove", e => {
+  	document.getElementById("demo").innerHTML = `mouseX: ${e.clientX}, mouseY: ${e.clientY}`;  
+});</script>
+以上是你的鼠标位置
+</html>
