@@ -4,7 +4,7 @@ email: jxz0316@foxmail.com # email of site's author
 url: https://j-xz.github.io/blog/ # root address of the site
 baseurl: "/blog" # subpath of the site, e.g. "/blog" (leave it blank "" if you're site shouldn't use a subpath)
 description: > # description of the site (multiple lines allowed)
-    This is Jiang Xuzhen's BLOG. Just for fun!
+  This is Jiang Xuzhen's BLOG. Just for fun!
 
 favicon: "logo.jpeg" # name+extension of favicon (which must be put on the root folder)
 # goat_counter: "yoursitename" # put your GoatCounter name if you want to use GoatCounter analytics
@@ -19,6 +19,11 @@ theme_config:
 
 sass:
   style: :compressed
+
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  syntax_highlighter: rouge
 
 plugins:
   - jekyll-feed
