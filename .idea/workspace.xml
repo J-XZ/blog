@@ -1,21 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="bb0ace73-7f15-4a19-877f-c39274ade9cd" name="Default Changelist" comment="1">
-      <change afterPath="$PROJECT_DIR$/assets/pic/logo.jpeg" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/_config.yml" beforeDir="false" afterPath="$PROJECT_DIR$/_config.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/_data/menu.yml" beforeDir="false" afterPath="$PROJECT_DIR$/_data/menu.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/_posts/2020-07-06-strange-post.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/_posts/2020-07-07-overview-post.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/_posts/2020-07-08-language-tests.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/_posts/2020-07-08-very-very-very-long-title-and-very-very-very-short-content.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/_posts/2020-07-09-post-example-with-headings-and-toc.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/_posts/2020-07-09-post-example-with-hr.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/_screenshots/featured-image.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/_screenshots/lighthouse-report.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/_screenshots/page-speed-insights-report.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/assets/js/mouse_coords.js" beforeDir="false" />
-    </list>
+    <list default="true" id="bb0ace73-7f15-4a19-877f-c39274ade9cd" name="Default Changelist" comment="1" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -59,7 +45,7 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1626782215824</updated>
-      <workItem from="1626782218427" duration="4314000" />
+      <workItem from="1626782218427" duration="4363000" />
     </task>
     <task id="LOCAL-00001" summary="1">
       <created>1626782288393</created>
@@ -96,7 +82,21 @@
       <option name="project" value="LOCAL" />
       <updated>1626785898737</updated>
     </task>
-    <option name="localTasksCounter" value="6" />
+    <task id="LOCAL-00006" summary="1">
+      <created>1626786543352</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1626786543352</updated>
+    </task>
+    <task id="LOCAL-00007" summary="1">
+      <created>1626786547673</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1626786547673</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
