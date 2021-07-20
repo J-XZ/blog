@@ -67,10 +67,6 @@ table, th, td {
   padding: 0.4rem;
 }
 
-code {
-  color: white;
-  background: black;
-}
 
 div.highlighter-rouge code {
   display: block;
@@ -116,7 +112,7 @@ img {
  $operator: #f29e74;
  $error: #ff3333;
 
-.highlight {
+.code {
   background-color: $background;
   color: $foreground;
   .c { color: $comment; font-style: italic; } /* Comment */
