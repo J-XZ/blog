@@ -55,9 +55,20 @@ h2, h3, h4, h5, h6 {
   color: #664d52;
 }
 
+
 hr {
-  margin: 2rem 0;
+  text-align: center;
+  border: 0;
+  font-family: emoji;
+  &:before {
+    content: '❤💀🤖'
+  }
+
+  &:after {
+    content: attr(data-content) '💾💕‍💻'
+  }
 }
+
 
 p {
   margin: 1rem 0;
