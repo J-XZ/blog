@@ -61,11 +61,11 @@ hr {
   border: 0;
   font-family: emoji;
   &:before {
-    content: '❤💀🤖'
+    content: '///❤💀🤖'
   }
 
   &:after {
-    content: attr(data-content) '🤖💀❤'
+    content: attr(data-content) '///'
   }
 }
 
