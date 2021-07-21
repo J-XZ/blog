@@ -51,14 +51,6 @@ li { margin: 0.4rem 0; }
   padding: 4rem 2rem;
 }
 
-hr {
-  text-align: center;
-  border: 0;
-
-  &:before { content: '/////' }
-  &:after { content: attr(data-content) '/////' }
-}
-
 table { width: 100%; }
 
 table, th, td {
