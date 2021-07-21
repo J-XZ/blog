@@ -8,7 +8,7 @@ description: > # description of the site (multiple lines allowed)
 
 permalink: /:slug.html
 
-favicon: "assets/pic/logo.jpeg" # name+extension of favicon (which must be put on the root folder)
+favicon: "../../www/assets/pic/logo.jpeg" # name+extension of favicon (which must be put on the root folder)
 
 theme: no-style-please # if you are using GitHub Pages, change it to remote_theme: riggraz/no-style-please
 
