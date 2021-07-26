@@ -101,6 +101,7 @@ table, th, td {
   border: thin solid black;
   border-collapse: collapse;
   padding: 0.4rem;
+	color: white;
 }
 
 code {
@@ -109,12 +110,15 @@ code {
 }
 
 .mylink {
-  color: -webkit-link;
-  cursor: pointer;
+//  color: -webkit-link;
+ color: #1229a0; 
+	cursor: pointer;
   text-decoration: underline;
   font-weight: bold;
 }
-
+a:visited{
+	color: purple;
+}
 .backlink {
   font-size: 30px;
   font-weight: bolder;
@@ -194,7 +198,7 @@ img {
 
 /* Comment.Multiline */
 .highlight .cp {
-  color: #75715e
+  color: #948f77 
 }
 
 /* Comment.Preproc */
