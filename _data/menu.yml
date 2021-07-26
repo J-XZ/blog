@@ -13,11 +13,13 @@ entries:
     post_list:
       category: CSAPP
       show_more: true
+      limit: 5
       show_more_text: See more posts...
       show_more_url: CSAPP.html
   - title: Something about SICP
     post_list:
       category: SICP
+      limit: 5
       show_more: true
       show_more_text: See more posts...
       show_more_url: SICP.html
