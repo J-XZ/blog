@@ -35,7 +35,6 @@ html {
 }
 
 body {
-  color: black;
   font-family: monospace;
   font-size: 16px;
   line-height: 1.4;
@@ -95,13 +94,6 @@ h1 {
 
 table {
   width: 100%;
-}
-
-table, th, td {
-  border: thin solid black;
-  border-collapse: collapse;
-  padding: 0.4rem;
-	color: white;
 }
 
 code {
@@ -473,10 +465,9 @@ img {
 }
 
 table, th, td {
-  /* border: thin solid black; */
   border-collapse: collapse;
-  padding: 0.4rem;
+  padding: 0.1rem;
   background: #001127;
   border: thin solid #a08da7;
-
+  color:white
 }
