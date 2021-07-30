@@ -12,3 +12,4 @@ category: SICP
 > Alan J. Perlis
 
 ![](../../www/assets/pic/2021-07-29%2017-33-12%20%E7%9A%84%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE.png)
+
