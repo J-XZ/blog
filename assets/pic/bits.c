@@ -1,15 +1,143 @@
----
-layout: post 
-category: CSAPP 
----
----
-
-[我的bits.c下载](../../www/assets/pic/bits.c)
-
-## bitXor
-
-```c
 /* 
+ * CS:APP Data Lab 
+ * 
+ * <Please put your name and userid here>
+ * 
+ * bits.c - Source file with your solutions to the Lab.
+ *          This is the file you will hand in to your instructor.
+ *
+ * WARNING: Do not include the <stdio.h> header; it confuses the dlc
+ * compiler. You can still use printf for debugging without including
+ * <stdio.h>, although you might get a compiler warning. In general,
+ * it's not good practice to ignore compiler warnings, but in this
+ * case it's OK.  
+ */
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wint-in-bool-context"
+#if 0
+/*
+ * Instructions to Students:
+ *
+ * STEP 1: Read the following instructions carefully.
+ */
+
+You will provide your solution to the Data Lab by
+editing the collection of functions in this source file.
+
+INTEGER CODING RULES:
+ 
+  Replace the "return" statement in each function with one
+  or more lines of C code that implements the function. Your code 
+  must conform to the following style:
+ 
+  int Funct(arg1, arg2, ...) {
+      /* brief description of how your implementation works */
+      int var1 = Expr1;
+      ...
+      int varM = ExprM;
+
+      varJ = ExprJ;
+      ...
+      varN = ExprN;
+      return ExprR;
+  }
+
+  Each "Expr" is an expression using ONLY the following:
+  1. Integer constants 0 through 255 (0xFF), inclusive. You are
+      not allowed to use big constants such as 0xffffffff.
+  2. Function arguments and local variables (no global variables).
+  3. Unary integer operations ! ~
+  4. Binary integer operations & ^ | + << >>
+    
+  Some of the problems restrict the set of allowed operators even further.
+  Each "Expr" may consist of multiple operators. You are not restricted to
+  one operator per line.
+
+  You are expressly forbidden to:
+  1. Use any control constructs such as if, do, while, for, switch, etc.
+  2. Define or use any macros.
+  3. Define any additional functions in this file.
+  4. Call any functions.
+  5. Use any other operations, such as &&, ||, -, or ?:
+  6. Use any form of casting.
+  7. Use any data type other than int.  This implies that you
+     cannot use arrays, structs, or unions.
+
+ 
+  You may assume that your machine:
+  1. Uses 2s complement, 32-bit representations of integers.
+  2. Performs right shifts arithmetically.
+  3. Has unpredictable behavior when shifting if the shift amount
+     is less than 0 or greater than 31.
+
+
+EXAMPLES OF ACCEPTABLE CODING STYLE:
+  /*
+   * pow2plus1 - returns 2^x + 1, where 0 <= x <= 31
+   */
+  int pow2plus1(int x) {
+     /* exploit ability of shifts to compute powers of 2 */
+     return (1 << x) + 1;
+  }
+
+  /*
+   * pow2plus4 - returns 2^x + 4, where 0 <= x <= 31
+   */
+  int pow2plus4(int x) {
+     /* exploit ability of shifts to compute powers of 2 */
+     int result = (1 << x);
+     result += 4;
+     return result;
+  }
+
+FLOATING POINT CODING RULES
+
+For the problems that require you to implement floating-point operations,
+the coding rules are less strict.  You are allowed to use looping and
+conditional control.  You are allowed to use both ints and unsigneds.
+You can use arbitrary integer and unsigned constants. You can use any arithmetic,
+logical, or comparison operations on int or unsigned data.
+
+You are expressly forbidden to:
+  1. Define or use any macros.
+  2. Define any additional functions in this file.
+  3. Call any functions.
+  4. Use any form of casting.
+  5. Use any data type other than int or unsigned.  This means that you
+     cannot use arrays, structs, or unions.
+  6. Use any floating point data types, operations, or constants.
+
+
+NOTES:
+  1. Use the dlc (data lab checker) compiler (described in the handout) to 
+     check the legality of your solutions.
+  2. Each function has a maximum number of operations (integer, logical,
+     or comparison) that you are allowed to use for your implementation
+     of the function.  The max operator count is checked by dlc.
+     Note that assignment ('=') is not counted; you may use as many of
+     these as you want without penalty.
+  3. Use the btest test harness to check your functions for correctness.
+  4. Use the BDD checker to formally verify your functions
+  5. The maximum number of ops for each function is given in the
+     header comment for each function. If there are any inconsistencies 
+     between the maximum ops in the writeup and in this file, consider
+     this file the authoritative source.
+
+/*
+ * STEP 2: Modify the following functions according the coding rules.
+ * 
+ *   IMPORTANT. TO AVOID GRADING SURPRISES:
+ *   1. Use the dlc compiler to check that your solutions conform
+ *      to the coding rules.
+ *   2. Use the BDD checker to formally verify that your solutions produce 
+ *      the correct answers.
+ */
+
+
+#endif
+//1
+/*
  * bitXor - x^y using only ~ and & 
  *   Example: bitXor(4, 5) = 1
  *   Legal ops: ~ &
@@ -19,19 +147,7 @@ category: CSAPP
 int bitXor(int x, int y) {
     return ~(~(x & ~y) & ~(~x & y));
 }
-```
 
-
-
-用数字逻辑表达式表示**两个比特**异或的推导
-
-![](../../www/assets/pic/Note%20Aug%201,%202021-1.png)
-
----
-
-## tmin
-
-```c
 /*
  * tmin - return minimum two's complement integer 
  *   Legal ops: ! ~ & ^ | + << >>
@@ -41,13 +157,7 @@ int bitXor(int x, int y) {
 int tmin(void) {
     return 1 << 31;
 }
-```
-
----
-
-## isTmax
-
-```c
+//2
 /*
  * isTmax - returns 1 if x is the maximum, two's complement number,
  *     and 0 otherwise 
@@ -72,15 +182,7 @@ int isTmax(int x) {
     /// !((如果x所有比特位按位取反之后得到的数字 != x+1) || (如果x的比特表示是全1))
     return !(if_y_not_equal_x_add_1 | if_y_not_equal_zero);
 }
-```
 
-![](../../www/assets/pic/Note%20Aug%201,%202021-1-1.png)
-
----
-
-## allOddBits
-
-```c
 /*
  * allOddBits - return 1 if all odd-numbered bits in word set to 1
  *   where bits are numbered from 0 (least significant) to 31 (most significant)
@@ -91,24 +193,16 @@ int isTmax(int x) {
  */
 int allOddBits(int x) {
     /// 下面这个数字只认为他的低16位有效
-    int one_half_x = x&(x>>16);
+    int one_half_x = x & (x >> 16);
     /// 下面这个数字只认为他的低8位有效
-    int one_quarter_x = one_half_x&(one_half_x>>8);
+    int one_quarter_x = one_half_x & (one_half_x >> 8);
     /// 下面这个数字只认为他的低4位有效
-    int one_eighth_x = one_quarter_x&(one_quarter_x>>4);
+    int one_eighth_x = one_quarter_x & (one_quarter_x >> 4);
     /// 下面这个数字只认为他的低2位有效
-    int one_sixteenth_x = one_eighth_x&(one_eighth_x>>2);
-    return 1&(one_sixteenth_x>>1);
+    int one_sixteenth_x = one_eighth_x & (one_eighth_x >> 2);
+    return 1 & (one_sixteenth_x >> 1);
 }
-```
 
-![](../../www/assets/pic/2021-08-01%2022-24-24%20%E7%9A%84%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE.png)
-
----
-
-## negate
-
-```c
 /*
  * negate - return -x 
  *   Example: negate(1) = -1.
@@ -120,13 +214,7 @@ int negate(int x) {
     ///所有比特位全部翻转 然后再加1
     return ~x + 1;
 }
-```
-
----
-
-## isAsciiDigit
-
-```c
+//3
 /* 
  * isAsciiDigit - return 1 if 0x30 <= x <= 0x39 (ASCII codes for characters '0' to '9')
  *   Example: isAsciiDigit(0x35) = 1.
@@ -160,15 +248,7 @@ bit-----------------------543210
     int bit1 = x >> 1;
     return (bit5 & bit4) & (~bit3 | (~bit2 & ~bit1)) & high_all_0;
 }
-```
 
-![](../../www/assets/pic/2021-08-01%2023-04-13%20%E7%9A%84%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE.png)
-
----
-
-## conditional
-
-```c
 /*
  * conditional - same as x ? y : z 
  *   Example: conditional(2,4,5) = 4
@@ -183,13 +263,7 @@ int conditional(int x, int y, int z) {
     int mask = ((!x) << 31) >> 31;
     return (z & mask) | (y & (~mask));
 }
-```
 
----
-
-## isLessOrEqual
-
-```c
 /*
  * isLessOrEqual - if x <= y  then return 1, else return 0 
  *   Example: isLessOrEqual(4,5) = 1.
@@ -207,13 +281,7 @@ int isLessOrEqual(int x, int y) {
     return ((x_minus_y_equal_zero | x_minus_y_less_than_zero) & if_x_y_same_sign)
            | if_x_negative_y_positive;
 }
-```
-
----
-
-## logicalNeg
-
-```c
+//4
 /* 
  * logicalNeg - implement the ! operator, using all of 
  *              the legal operators except !
@@ -245,13 +313,7 @@ int logicalNeg(int x) {
     /// 把int之间的按位运算看做比特向量的并行计算
     return ~x & 0x1;
 }
-```
 
----
-
-## howManyBits
-
-```c
 /* howManyBits - return the minimum number of bits required to represent x in
  *             two's complement
  *  Examples: howManyBits(12) = 5
@@ -342,15 +404,6 @@ x变成了一个形如00*****010*****的数字，最高位必为0
     b0 = if_mask & 1;
     return b0 + b1 + b2 + b3 + b4 + 1;
 }
-```
-
-![](../../www/assets/pic/Note%20Aug%201,%202021.png)
-
----
-
-## floatScale2
-
-```c
 //float
 /* 
  * floatScale2 - Return bit-level equivalent of expression 2*f for
@@ -383,13 +436,7 @@ unsigned floatScale2(unsigned uf) {
     }
     return sign << 31 | exp << 23 | frac;
 }
-```
 
----
-
-## floatFloat2Int
-
-```c
 /*
  * floatFloat2Int - Return bit-level equivalent of expression (int) f
  *   for floating point argument f.
@@ -437,19 +484,13 @@ int floatFloat2Int(unsigned uf) {
             ans = frac << (e - 23);
         } else {
             ///如果小数点不够移动到最末端，那么先隐式地将小数点移到最右端，
-            /// 然后右移上一步多移动的部分
+            /// 然后右移上一步多移动的部分,相当于直接截断整型无法表示的小数
             ans = frac >> (23 - e);
         }
     }
     return (sign == 0 ? ans : -ans);
 }
-```
 
----
-
-## floatPower2
-
-```c
 /*
  * floatPower2 - Return bit-level equivalent of the expression 2.0^x
  *   (2.0 raised to the power x) for any 32-bit integer x.
@@ -473,25 +514,5 @@ unsigned floatPower2(int x) {
     }
     return x<<23;
 }
-```
 
----
-
-最后一题测试器使用了我们的实现和一个快速幂实现的结果进行比较，但是我的机器性能太差以至于他的快速幂代码在我的计算机上无法在10秒内跑完，所以需要在运行./btest时加上-T参数，修改默认的运行时间。
-
-我在完成lab的过程中编写了一个简短的bash脚本
-
-test.sh
-
-```bash
-./dlc bits.c
-echo "--------------------------------"
-make btest && ./btest -T 40
-```
-
-然后配置ide(clion)一件运行脚本进行代码规范检查（dlc）和代码结果测试(btest)
-
-![](../../www/assets/pic/2021-08-02%2014-59-00%20%E7%9A%84%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE.png)
-
-![](../../www/assets/pic/2021-08-02%2015-00-18%20%E7%9A%84%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE.png)
-
+#pragma clang diagnostic pop
