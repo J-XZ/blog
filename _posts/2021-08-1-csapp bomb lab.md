@@ -13,7 +13,6 @@ category: CSAPP
 ![](../../www/assets/pic/Page7.png)
 ![](../../www/assets/pic/Page8.png)
 
-**最后一题的代码解释**
+**最后一题的[代码](assets/code/bomb lab.cpp)解释**
 
 ![](../../www/assets/pic/111.jpeg)
-
