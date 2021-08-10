@@ -4,7 +4,7 @@ email: 2645814401@qq.com # email of site's author
 url: https://j-xz.github.io/www/ # root address of the site
 baseurl: "/www" # subpath of the site, e.g. "/blog" (leave it blank "" if you're site shouldn't use a subpath)
 description: > # description of the site (multiple lines allowed)
-  This is Jiang Xuzhen's Blog.(Website template from https://github.com/riggraz/no-style-please)
+  This is Jiang Xuzhen's Blog.
 
 permalink: /:slug.html
 
