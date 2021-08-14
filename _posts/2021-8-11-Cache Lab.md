@@ -25,7 +25,209 @@ Part A
 
 part A的详细注释代码如下：
 
+```c
+#include "cachelab.h"
+#include "getopt.h"
+#include "stdlib.h"
+#include "unistd.h"
+#include "stdio.h"
+#include "malloc.h"
+#include "string.h"
 
+///全局变量存储命中次数,不命中次数,换出次数
+int hits = 0, misses = 0, evicts = 0;
+
+typedef int bool;
+bool view = 0;
+///我们的模拟cache不需要实际存储内容
+///只需要完成计数
+typedef struct {
+    bool used;///记录这个块有没有被使用过
+    int timer;///记录这个块已经有多久没被使用了
+    unsigned int line_flag;///存储这个cache行的标志位，
+/// （即地址的高位，根据地址的中间几位）判定一个内存位置被缓存到cache的哪个块
+/// 对于有多个地址能映射到同一个cache块的情形，使用标志位判定当前存储的行是不是要找的行
+} cache_line, *cache_p;
+cache_p cache = NULL;///定义一个指向cache头部的指针
+int s, E, b;///存储输入参数
+
+/// 计算一个地址应该被存储到cache的哪个集合
+/// \param location 无符号数字形式的内存地址
+/// \return 这个地址应该被存储的cache集合号
+unsigned int get_set_num(unsigned int location) {
+    location >>= b;///将地址右移b位，因为对于判定存储到哪个cache集合，块内偏移量没有用
+    return location & ((1 << s) - 1);///返回cache地址的中间s个比特，表示集合编号
+    /// 之所以使用中间s位作为集合号而不是高s位，是为了防止将相邻的内存块存储在同一个cache集合中
+    /// 可以降低发生冲突不命中的概率
+}
+
+/// 获取一个地址的行标记位
+/// \param location 无符号数形式的内存地址
+/// \return 这个地址对应的行标记位（除了块内偏移位和集合编号位以外的所有高比特位）
+unsigned int get_line_flag(unsigned int location) {
+    return location >> (s + b);
+}
+
+/// 获取一个cache集合的起始位置
+/// \param set_num 集合号
+/// \return 用于存储这个集合的cache内容的内存起始位置
+cache_p get_set(unsigned int set_num) {
+    /// 返回cache头位置+集合编号 乘 每个集合块数
+    /// 因为这个指针cache指向的是类型为cache行的结构体，所以+n相当于增加n个结构体所占的字节数
+    return cache + set_num * E;
+}
+
+/// 模拟读或者写cache的操作
+/// 因为cache模拟器不需要实际读写cache内容，所以不必区分读操作和写操作，
+/// 这两种操作对于模拟器来说是相同的cache访问操作
+/// \param set_num 要访问的cache集合号
+/// \param line_flag 要访问的内存块的行标记位
+void load_or_write_cache(unsigned int set_num, unsigned int line_flag) {
+    ///找到要访问的集合的起始位置
+    cache_p set_begin = get_set(set_num);
+    /// 局部变量，存储是否命中，如果经过下面对于当前集合的遍历没有命中，这个变量就会保持原始值-1
+    int the_hit_line = -1;
+    /// 存储这个cache集合中是否有空行
+    int the_empty_line = -1;
+    /// 存储这个集合里找到的最久未访问的行号
+    int the_oldest_line = -1;
+    /// 存储这个集合中最久未访问的行已经有多久没被访问了
+    int oldest_line_age = 0;
+    /// 遍历这个集合中的所有行，维护上述的几个局部变量
+    for (int i = 0; i < E; i++) {
+        /// 如果这个行内存储的内容是有效的
+        if (set_begin[i].used) {
+            /// 检查这个行的行标记位与要访问的内存地址的行标记位是否相同
+            if (set_begin[i].line_flag == line_flag) {
+                /// 找到目标行
+                the_hit_line = i;
+                /// 将目标行的未访问时间标记清空
+                set_begin[i].timer = 0;
+            } else {
+                /// 如果这个行不是要找的行，就把这个行的未访问时间标记+1
+                set_begin[i].timer++;
+            }
+            /// 维护最久未访问的行
+            if (set_begin[i].timer > oldest_line_age) {
+                oldest_line_age = set_begin[i].timer;
+                the_oldest_line = i;
+            }
+        } else {
+            /// 找到空行（有效标记位为无效的行）
+            the_empty_line = i;
+        }
+    }
+    ///如果cache命中
+    if (the_hit_line >= 0) {
+        hits++;
+        if (view) {
+            printf("hit ");
+        }
+        return;
+    } else {
+        misses++;
+        if (view) {
+            printf("miss ");
+        }
+        /// 如果没用命中，优先把要访问的内存块装入一个cache集合中的空行
+        if (the_empty_line >= 0) {
+            set_begin[the_empty_line].line_flag = line_flag;
+            set_begin[the_empty_line].timer = 0;
+            set_begin[the_empty_line].used = 1;
+        } else {
+            /// 如果没有空行，将最久未访问的行换出
+            evicts++;
+            if (view) {
+                printf("eviction ");
+            }
+            set_begin[the_oldest_line].line_flag = line_flag;
+            set_begin[the_oldest_line].timer = 0;
+            set_begin[the_oldest_line].used = 1;
+        }
+    }
+}
+
+/// 如果遇到修改内存内容的指令，实际就是先读取这个内存然后计算后再写回同内存地址
+/// 把读或写函数执行两次即可
+void load_and_write_cache(unsigned int set_num, unsigned int line_flag) {
+    load_or_write_cache(set_num, line_flag);
+    load_or_write_cache(set_num, line_flag);
+}
+
+/// 初始化cache模拟器
+/// \param set_num cache的集合数量
+/// \param line_pre_set 每个cache集合中缓存的cache块数目（行数）
+void cache_init(int set_num, int line_pre_set) {
+    cache = malloc(sizeof(cache_line) * set_num * line_pre_set);
+    memset(cache, 0, sizeof(cache_line) * set_num * line_pre_set);
+}
+
+/// 释放上述cache模拟器初始化申请的内存
+/// 虽然程序 运行结束会被自动回收所有资源，但是显式释放所有手动分配的内存是防止内存泄露的好习惯
+void cache_delete() {
+    free(cache);
+}
+
+int main(int argc, char *argv[]) {
+    /// 解析程序输入参数
+    char c;
+    while ((c = getopt(argc, argv, "hvs:E:b:t:")) != -1) {
+        switch (c) {
+            case 'v':
+                view = 1;
+                break;
+            case 's':
+                s = atoi(optarg);///组索引需要的比特位数
+                break;
+            case 'E':
+                E = atoi(optarg);///每组行数
+                break;
+            case 'b':
+                b = atoi(optarg);///块内偏移索引需要的比特数
+                break;
+            case 't':
+                ///打开输入文件，将stdin重定位到指向这个文件描述符
+                ///后面就可以使用读取stdin的函数读取这个输入文件
+                freopen(optarg, "r", stdin);
+                break;
+            case 'h':
+                printf("Usage: ./csim-ref [-hv] -s <s> -E <E> -b <b> -t <tracefile>\n"
+                       "• -h: Optional help flag that prints usage info\n"
+                       "• -v: Optional verbose flag that displays trace info\n"
+                       "• -s <s>: Number of set index bits (S = 2^s is the number of sets)\n"
+                       "• -E <E>: Associativity (number of lines per set)\n"
+                       "• -b <b>: Number of block bits (B = 2^b is the block size)\n"
+                       "• -t <tracefile>: Name of the valgrind trace to replay");
+                exit(0);
+        }
+    }
+    /// 根据初始参数初始化模拟cache的内存
+    cache_init(1 << s, E);
+    /// 存储内存追踪文件每条指令的缓冲区
+    char get[150];
+    unsigned int location;
+    /// 从重定位后的stdin文件描述符（输入的内存追踪文件）读取每一条内存操作
+    while (~scanf("%s %x,%s", get, &location, get + 100)) {
+        if (view) {
+            printf("%c %x,%s ", *get, location, get + 100);
+        }
+        /// 如果是加载内存或存储内存，则调用一次地或写函数
+        if (*get == 'L' || *get == 'S') {
+            load_or_write_cache(get_set_num(location), get_line_flag(location));
+            ///如果是修改内存内容，调用两次读或写函数
+        } else if (*get == 'M') {
+            load_and_write_cache(get_set_num(location), get_line_flag(location));
+        }
+        if (view) {
+            printf("\n");
+        }
+    }
+    printSummary(hits, misses, evicts);
+    /// 手动释放分配的内存
+    cache_delete();
+    return 0;
+}
+```
 
 ---
 
