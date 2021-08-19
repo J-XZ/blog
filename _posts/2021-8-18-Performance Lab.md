@@ -161,8 +161,98 @@ void rotate(int dim, pixel *src, pixel *dst) {
 }
 ```
 
-![image-20210818233459405](../../www/assets/pic/image-20210818233459405.png)
+![image-20210819103713715](../../www/assets/pic/image-20210819103713715.png)
 
 **上面这种方法就是我目前找到的最优解**
 
 ## 图像平滑
+
+单纯的分块并没有效果，甚至反而降低了效率
+
+```c
+char smooth_descr[] = "smooth: 16*16分块";
+void smooth(int dim, pixel *src, pixel *dst) {
+    for (int i = 0; i < dim; i += 16)
+        for (int j = 0; j < dim; j += 16)
+            for (int ii = 0; ii < 16; ii++)
+                for (int jj = 0; jj < 16; jj++)
+                    dst[RIDX(i + ii, j + jj, dim)] =
+                        avg(dim, i + ii, j + jj, src);
+}
+```
+
+![image-20210819104013455](../../www/assets/pic/image-20210819104013455.png)
+
+---
+
+```c
+char smooth_descr[] = "smooth: 分类讨论，减少冗余计算";
+#define d_r4(x, r1, r2, r3, r4)                                               \
+    dst[x].blue =                                                             \
+        (src[r1].blue + src[r2].blue + src[r3].blue + src[r4].blue) / 4;      \
+    dst[x].red = (src[r1].red + src[r2].red + src[r3].red + src[r4].red) / 4; \
+    dst[x].green =                                                            \
+        (src[r1].green + src[r2].green + src[r3].green + src[r4].green) / 4
+#define d_r6(x, r1, r2, r3, r4, r5, r6)                                        \
+    dst[x].blue = (src[r1].blue + src[r2].blue + src[r3].blue + src[r4].blue + \
+                   src[r5].blue + src[r6].blue) /                              \
+                  6;                                                           \
+    dst[x].red = (src[r1].red + src[r2].red + src[r3].red + src[r4].red +      \
+                  src[r5].red + src[r6].red) /                                 \
+                 6;                                                            \
+    dst[x].green = (src[r1].green + src[r2].green + src[r3].green +            \
+                    src[r4].green + src[r5].green + src[r6].green) /           \
+                   6
+#define d_r9(x, r1, r2, r3, r4, r5, r6, r7, r8, r9)                            \
+    dst[x].blue = (src[r1].blue + src[r2].blue + src[r3].blue + src[r4].blue + \
+                   src[r5].blue + src[r6].blue + src[r7].blue + src[r8].blue + \
+                   src[r9].blue) /                                             \
+                  9;                                                           \
+    dst[x].red =                                                               \
+        (src[r1].red + src[r2].red + src[r3].red + src[r4].red + src[r5].red + \
+         src[r6].red + src[r7].red + src[r8].red + src[r9].red) /              \
+        9;                                                                     \
+    dst[x].green = (src[r1].green + src[r2].green + src[r3].green +            \
+                    src[r4].green + src[r5].green + src[r6].green +            \
+                    src[r7].green + src[r8].green + src[r9].green) /           \
+                   9
+
+void smooth(int dim, pixel *src, pixel *dst) {
+    // 4个顶点
+    int i, j;
+    d_r4(0, 0, 1, dim, dim + 1);
+    d_r4(dim - 1, dim - 1, dim - 2, dim + dim - 1, dim + dim - 2);
+    int tmp = dim * (dim - 1);
+    d_r4(tmp, tmp, tmp + 1, tmp - dim, tmp - dim + 1);
+    tmp = dim * dim - 1;
+    d_r4(tmp, tmp, tmp - 1, tmp - dim, tmp - dim - 1);
+    // 除顶点外的4条边
+    // 上方横边
+    for (i = 1; i < dim - 1; i++) {
+        d_r6(i, i, i - 1, i + 1, i + dim, i + dim - 1, i + dim + 1);
+    }
+    // 下方横边
+    for (i = dim * (dim - 1) + 1; i < dim * dim - 1; i++) {
+        d_r6(i, i, i - 1, i + 1, i - dim, i - dim - 1, i - dim + 1);
+    }
+    // 左侧纵边
+    for (j = dim; j < dim * (dim - 1); j += dim) {
+        d_r6(j, j, j + 1, j - dim, j - dim + 1, j + dim, j + dim + 1);
+    }
+    // 右侧纵边
+    for (j = 2 * dim - 1; j < dim * dim - 1; j += dim) {
+        d_r6(j, j, j - 1, j - dim, j - dim - 1, j + dim, j + dim - 1);
+    }
+    // 中间所有像素，每一个都可以在一个9*9多的块中计算平均值
+    for (i = 1; i < dim - 1; i++) {
+        for (j = 1; j < dim - 1; j++) {
+            tmp = i * dim + j;
+            d_r9(tmp, tmp, tmp - 1, tmp + 1, tmp - dim, tmp - dim - 1,
+                 tmp - dim + 1, tmp + dim, tmp + dim - 1, tmp + dim + 1);
+        }
+    }
+}
+```
+
+![image-20210819120856304](../../www/assets/pic/image-20210819120856304.png)
+
