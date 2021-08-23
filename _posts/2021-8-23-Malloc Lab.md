@@ -258,5 +258,5 @@ void *mm_realloc(void *bp, size_t size) {
 
 ![image-20210823213223076](../../www/assets/pic/image-20210823213223076.png)
 
-<font color=blue>结果输出表格中util表示堆的空间利用率，ops表示总的操作次数，Kops表示$千次操作/秒$</font>
+**<font color=blue>结果输出表格中util表示堆的空间利用率，ops表示总的操作次数，Kops表示$千次操作/秒$</font>**
 
