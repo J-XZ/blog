@@ -414,7 +414,7 @@ int mm_init(void) {
     // 结尾块的头，结尾块没有脚
     PUT(heap_listp + (3 * WSIZE), PACK(0, 1));
     // 令heap_listp指向序言块当中可用内存的起始位置
-    //（其实是只想序言块的脚的起始地址）,因为序言块的头和脚贴在一起，没有可用内存区域
+    //（其实是指向序言块的脚的起始地址）,因为序言块的头和脚贴在一起，没有可用内存区域
     // 他只是一个方便遍历操作时确定边界而存在的序言，不需要可用内存区域
     heap_listp += 2 * WSIZE;
     if (extend_heap(CHUNKSIZE / WSIZE) == NULL) return -1;
@@ -558,3 +558,757 @@ void *mm_realloc(void *bp, size_t size) {
 再进一步可以使用分离适配，维护多个空闲块大小范围的链表，每次搜寻合适的空闲块时可以缩小搜寻范围，继续提高搜索效率
 
 ---
+
+#### 使用显式空闲链表（双向链表组织所有空闲块）+ 立即合并空闲块 + 最优适配 + 去除已分配块的脚部
+
+使用最优适配是因为只有这种适配方法可以尽可能提高内存利用率，否则无法通过样例。
+
+可以看到使用显式空闲链表可以大幅提升吞吐量（因为搜索合适块的范围变成了所有的空闲块，而隐式空闲链表要搜索全部的内存块），但是牺牲了内存利用率。
+
+![image-20210825134523486](../../www/assets/pic/image-20210825134523486.png)
+
+```c
+/*
+ * mm-naive.c - The fastest, least memory-efficient malloc package.
+ *
+ * In this naive approach, a block is allocated by simply incrementing
+ * the brk pointer.  A block is pure payload. There are no headers or
+ * footers.  Blocks are never coalesced or reused. Realloc is
+ * implemented directly using mm_malloc and mm_free.
+ *
+ * NOTE TO STUDENTS: Replace this header comment with your own header
+ * comment that gives a high level description of your solution.
+ */
+#include "mm.h"
+
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "memlib.h"
+
+/*********************************************************
+ * NOTE TO STUDENTS: Before you do anything else, please
+ * provide your team information in the following struct.
+ ********************************************************/
+team_t team = {
+    /* Team name */
+    "ateam",
+    /* First member's full name */
+    "Harry Bovik",
+    /* First member's email address */
+    "bovik@cs.cmu.edu",
+    /* Second member's full name (leave blank if none) */
+    "",
+    /* Second member's email address (leave blank if none) */
+    ""};
+
+/* single word (4) or double word (8) alignment */
+#define ALIGNMENT 8
+
+/* rounds up to the nearest multiple of ALIGNMENT */
+#define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~0x7)
+
+#define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
+
+//自定义////////////////////////////////////////////////////////////////////////
+#define min(x, y) (x < y ? x : y)
+typedef unsigned int uint;
+typedef unsigned long ulong;
+typedef struct node {
+    uint inf;
+    struct node *prev;
+    struct node *next;
+} node, *node_p;
+static const uint mask1_1000 = ~(uint)0b111;
+static const uint mask0_0010 = (uint)0b10;
+static const uint mask0_0001 = (uint)0b1;
+static const uint mask0_0111 = (uint)0b111;
+static inline uint get_block_size(node_p x) {
+    uint inf = x->inf;
+    return inf & mask1_1000;
+}
+static inline int get_useful_size(node_p x) { return get_block_size(x) - 4; }
+static inline uint get_prev_allocated(node_p x) {
+    uint inf = x->inf;
+    return inf & mask0_0010;
+}
+static inline uint get_allocated(node_p x) {
+    uint inf = x->inf;
+    return inf & mask0_0001;
+}
+static inline uint get_prev_foot(node_p x) {
+    if (!get_prev_allocated(x)) {
+        void *ret = x;
+        ret -= 4;
+        return ((node *)ret);
+    }
+    printf("error!");
+    return NULL;
+}
+static inline uint make_inf(uint size, uint is_prev_allocated,
+                            uint is_allocated) {
+    uint value = size;
+    value &= mask1_1000;
+    value |= (uint)(is_prev_allocated ? 0b10 : 0);
+    value |= (uint)(is_allocated ? 0b1 : 0);
+    return value;
+}
+static inline node_p get_ret_pointer(node_p x) {
+    void *ret = x;
+    ret += 4;
+    return ret;
+}
+static inline node_p get_next_neighbour(node_p x) {
+    void *ret = (void *)x;
+    ret += get_block_size(x);
+    return (node_p)ret;
+}
+static inline node_p get_prev_neighbour(node_p x) {
+    if (!get_prev_allocated(x)) {
+        uint foot = *(uint *)get_prev_foot(x);
+        uint prev_block_size = foot & mask1_1000;
+        void *ret = (void *)x;
+        ret -= prev_block_size;
+        return ret;
+    } else {
+        printf("error\n");
+        return NULL;
+    }
+}
+static inline void copy_head_2_foot(node_p x) {
+    void *foot = x;
+    foot += get_block_size(x) - 4;
+    *(uint *)foot = x->inf;
+}
+static inline void set_inf(node_p x, uint size, uint is_prev_allocated,
+                           uint is_allocated) {
+    uint value = size;
+    value &= mask1_1000;
+    value |= (uint)(is_prev_allocated ? 0b10 : 0);
+    value |= (uint)(is_allocated ? 0b1 : 0);
+    x->inf = value;
+}
+static node begin;
+static node end;
+static inline void prepare_list() {
+    begin.next = &end;
+    end.prev = &begin;
+    set_inf(&begin, 0, 0, 0);
+    set_inf(&end, 0, 0, 0);
+}
+static inline void insert_node(node_p x) {
+    node_p start = &begin;
+    node_p second = start->next;
+    start->next = x;
+    x->next = second;
+    x->prev = start;
+    second->prev = x;
+}
+static inline void erase_node(node_p x) {
+    node_p prev = x->prev;
+    node_p next = x->next;
+    prev->next = next;
+    next->prev = prev;
+}
+static node_p second_last_node;
+static inline node_p find_fit(uint size) {
+    node_p x = &begin;
+    node_p ret = NULL;
+    uint min_size = __INT_MAX__;
+    while (get_useful_size(x->next) > 0) {
+        x = x->next;
+        uint tmp_size = get_block_size(x);
+        if (tmp_size >= size) {
+            if (tmp_size <= min_size) {
+                min_size = tmp_size;
+                ret = x;
+            }
+        }
+    }
+    return ret;
+}
+static inline node_p merge_node(node_p x) {
+    uint prev_allocated = get_prev_allocated(x);
+    node_p next_neighbour = get_next_neighbour(x);
+    uint next_allocated = get_allocated(next_neighbour);
+    if (prev_allocated && next_allocated) {
+        return x;
+    }
+    if (prev_allocated && !next_allocated) {
+        if (next_neighbour == second_last_node || x == second_last_node) {
+            second_last_node = x;
+        }
+        erase_node(next_neighbour);
+        erase_node(x);
+
+        set_inf(x, get_block_size(x) + get_block_size(next_neighbour), 1, 0);
+        copy_head_2_foot(x);
+        insert_node(x);
+
+        return x;
+    }
+    if (!prev_allocated && next_allocated) {
+        node_p prev_neighbour = get_prev_neighbour(x);
+        if (x == second_last_node || prev_neighbour == second_last_node) {
+            second_last_node = prev_neighbour;
+        }
+        erase_node(x);
+        erase_node(prev_neighbour);
+
+        set_inf(prev_neighbour,
+                get_block_size(prev_neighbour) + get_block_size(x),
+                get_prev_allocated(prev_neighbour), 0);
+        copy_head_2_foot(prev_neighbour);
+        insert_node(prev_neighbour);
+
+        return prev_neighbour;
+    }
+    if (!prev_allocated && !next_allocated) {
+        node_p prev_neighbour = get_prev_neighbour(x);
+        if (next_neighbour == second_last_node || x == second_last_node ||
+            prev_neighbour == second_last_node) {
+            second_last_node = prev_neighbour;
+        }
+        erase_node(prev_neighbour);
+        erase_node(x);
+        erase_node(next_neighbour);
+
+        set_inf(prev_neighbour,
+                get_block_size(prev_neighbour) + get_block_size(x) +
+                    get_block_size(next_neighbour),
+                get_prev_allocated(prev_neighbour), 0);
+        copy_head_2_foot(prev_neighbour);
+        insert_node(prev_neighbour);
+
+        return prev_neighbour;
+    }
+}
+static inline node_p get_more_space(uint size) {
+    if (!get_allocated(second_last_node)) {
+        size -= get_block_size(second_last_node);
+    }
+    if (size <= 0) {
+        return second_last_node;
+    }
+    if (size < 16) {
+        size = 16;
+    }
+    node_p ret = mem_sbrk(size);
+    ret = (node_p)((void *)ret - 4);
+
+    set_inf(ret, size, get_allocated(second_last_node), 0);
+    copy_head_2_foot(ret);
+    insert_node(ret);
+
+    set_inf(get_next_neighbour(ret), 0, 0, 1);
+    ret = merge_node(ret);
+    // second_last_node = ret;
+    return ret;
+}
+static inline void allocate(node_p x, uint size) {
+    erase_node(x);
+    uint old_block_size = get_block_size(x);
+    if (old_block_size - size > 16) {
+        node_p next_neighbour = get_next_neighbour(x);
+        set_inf(next_neighbour, get_block_size(next_neighbour), 0,
+                get_allocated(next_neighbour));
+        set_inf(x, size, get_prev_allocated(x), 1);
+        next_neighbour = get_next_neighbour(x);
+        set_inf(next_neighbour, old_block_size - size, 1, 0);
+        copy_head_2_foot(next_neighbour);
+        insert_node(next_neighbour);
+        merge_node(next_neighbour);
+    } else {
+        set_inf(x, get_block_size(x), get_prev_allocated(x), 1);
+        node_p next_neighbour = get_next_neighbour(x);
+        set_inf(next_neighbour, get_block_size(next_neighbour), 1,
+                get_allocated(next_neighbour));
+    }
+}
+//自定义////////////////////////////////////////////////////////////////////////
+
+/*
+ * mm_init - initialize the malloc package.
+ */
+int mm_init(void) {
+    prepare_list();
+    void *p = mem_sbrk(4 * 4);
+    second_last_node = (node *)(p + 4);
+    uint *pp = (uint *)p;
+    pp[1] = make_inf(8, 1, 1);
+    pp[3] = make_inf(0, 1, 1);
+    return 0;
+}
+
+/*
+ * mm_malloc - Allocate a block by incrementing the brk pointer.
+ *     Always allocate a block whose size is a multiple of the alignment.
+ */
+void *mm_malloc(size_t size) {
+    size += 4;
+    size = ALIGN(size);
+    if (size < 16) {
+        size = 16;
+    }
+    node_p insert_p = find_fit(size);
+    if (!insert_p) {
+        insert_p = get_more_space(size);
+    }
+    if (insert_p == NULL) {
+        return NULL;
+    }
+    allocate(insert_p, size);
+    return get_ret_pointer(insert_p);
+}
+
+/*
+ * mm_free - Freeing a block does nothing.
+ */
+void mm_free(void *ptr) {
+    node_p x = (node_p)(ptr - 4);
+    set_inf(x, get_block_size(x), get_prev_allocated(x), 0);
+    copy_head_2_foot(x);
+    insert_node(x);
+    merge_node(x);
+}
+
+/*
+ * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
+ */
+void *mm_realloc(void *ptr, size_t size) {
+    if (ptr == NULL) {
+        return mm_malloc(size);
+    }
+    if (size == 0) {
+        mm_free(ptr);
+        return NULL;
+    }
+    size = ALIGN(size + 4);
+    if (get_block_size(ptr - 4) >= size) {
+        return ptr;
+    }
+    void *oldptr = ptr;
+    void *newptr;
+    size_t copySize;
+    newptr = mm_malloc(size);
+    if (newptr == NULL) return NULL;
+    copySize = min(size, get_useful_size(oldptr));
+    memcpy(newptr, oldptr, copySize);
+    mm_free(oldptr);
+    return newptr;
+}
+
+```
+
+#### 使用分离存储的空闲链表，将不同大小范围的空闲内存块用不同的链表进行组织，进一步提高搜索效率
+
+空闲链表的分组方式：
+
+![image-20210825140507506](../../www/assets/pic/image-20210825140507506.png)
+
+![image-20210825140440468](../../www/assets/pic/image-20210825140440468.png)
+
+我的代码实现主要是在大样例和remalloc函数实现上对于内存利用效率太低，最后两个样例极低的内存利用率拉低了得分。应当想办法优化remalloc函数的实现
+
+```c
+/*
+ * mm-naive.c - The fastest, least memory-efficient malloc package.
+ *
+ * In this naive approach, a block is allocated by simply incrementing
+ * the brk pointer.  A block is pure payload. There are no headers or
+ * footers.  Blocks are never coalesced or reused. Realloc is
+ * implemented directly using mm_malloc and mm_free.
+ *
+ * NOTE TO STUDENTS: Replace this header comment with your own header
+ * comment that gives a high level description of your solution.
+ */
+#include "mm.h"
+
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "memlib.h"
+
+/*********************************************************
+ * NOTE TO STUDENTS: Before you do anything else, please
+ * provide your team information in the following struct.
+ ********************************************************/
+team_t team = {
+    /* Team name */
+    "ateam",
+    /* First member's full name */
+    "Harry Bovik",
+    /* First member's email address */
+    "bovik@cs.cmu.edu",
+    /* Second member's full name (leave blank if none) */
+    "",
+    /* Second member's email address (leave blank if none) */
+    ""};
+
+/* single word (4) or double word (8) alignment */
+#define ALIGNMENT 8
+
+/* rounds up to the nearest multiple of ALIGNMENT */
+#define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~0x7)
+
+#define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
+
+//自定义////////////////////////////////////////////////////////////////////////
+#define min(x, y) (x < y ? x : y)
+typedef unsigned int uint;
+typedef unsigned long ulong;
+typedef struct node {
+    uint inf;
+    struct node *prev;
+    struct node *next;
+} node, *node_p;
+static const uint mask1_1000 = ~(uint)0b111;
+static const uint mask0_0010 = (uint)0b10;
+static const uint mask0_0001 = (uint)0b1;
+static const uint mask0_0111 = (uint)0b111;
+static inline uint get_block_size(node_p x) {
+    uint inf = x->inf;
+    return inf & mask1_1000;
+}
+static inline int get_useful_size(node_p x) { return get_block_size(x) - 4; }
+static inline uint get_prev_allocated(node_p x) {
+    uint inf = x->inf;
+    return inf & mask0_0010;
+}
+static inline uint get_allocated(node_p x) {
+    uint inf = x->inf;
+    return inf & mask0_0001;
+}
+static inline uint get_prev_foot(node_p x) {
+    if (!get_prev_allocated(x)) {
+        void *ret = x;
+        ret -= 4;
+        return ((node *)ret);
+    }
+    printf("error!");
+    return NULL;
+}
+static inline uint make_inf(uint size, uint is_prev_allocated,
+                            uint is_allocated) {
+    uint value = size;
+    value &= mask1_1000;
+    value |= (uint)(is_prev_allocated ? 0b10 : 0);
+    value |= (uint)(is_allocated ? 0b1 : 0);
+    return value;
+}
+static inline node_p get_ret_pointer(node_p x) {
+    void *ret = x;
+    ret += 4;
+    return ret;
+}
+static inline node_p get_next_neighbour(node_p x) {
+    void *ret = (void *)x;
+    ret += get_block_size(x);
+    return (node_p)ret;
+}
+static inline node_p get_prev_neighbour(node_p x) {
+    if (!get_prev_allocated(x)) {
+        uint foot = *(uint *)get_prev_foot(x);
+        uint prev_block_size = foot & mask1_1000;
+        void *ret = (void *)x;
+        ret -= prev_block_size;
+        return ret;
+    } else {
+        printf("error\n");
+        return NULL;
+    }
+}
+static inline void copy_head_2_foot(node_p x) {
+    void *foot = x;
+    foot += get_block_size(x) - 4;
+    *(uint *)foot = x->inf;
+}
+static inline void set_inf(node_p x, uint size, uint is_prev_allocated,
+                           uint is_allocated) {
+    uint value = size;
+    value &= mask1_1000;
+    value |= (uint)(is_prev_allocated ? 0b10 : 0);
+    value |= (uint)(is_allocated ? 0b1 : 0);
+    x->inf = value;
+}
+static node begin[10];
+static node end[10];
+static inline uint get_index(uint size) {
+    if (size <= 16) {
+        return 1;
+    } else if (size <= 32) {
+        return 2;
+    } else if (size <= 64) {
+        return 3;
+    } else if (size <= 128) {
+        return 4;
+    } else {
+        return 5;
+    }
+}
+static inline void prepare_list() {
+    for (int i = 0; i < 9; i++) {
+        begin[i].next = &end[i];
+        end[i].prev = &begin[i];
+        set_inf(&begin[i], 0, 0, 0);
+        set_inf(&end[i], 0, 0, 0);
+    }
+}
+static inline void insert_node(node_p x) {
+    node_p start = &begin[get_index(get_block_size(x))];
+    node_p second = start->next;
+    start->next = x;
+    x->next = second;
+    x->prev = start;
+    second->prev = x;
+}
+static inline void erase_node(node_p x) {
+    node_p prev = x->prev;
+    node_p next = x->next;
+    prev->next = next;
+    next->prev = prev;
+}
+static node_p second_last_node;
+static inline node_p find_fit(uint size) {
+    node_p x = &begin[get_index(size)];
+    node_p ret = NULL;
+    uint min_size = __INT_MAX__;
+    while (get_useful_size(x->next) > 0) {
+        x = x->next;
+        uint tmp_size = get_block_size(x);
+        if (tmp_size >= size) {
+            if (tmp_size <= min_size) {
+                min_size = tmp_size;
+                ret = x;
+            }
+        }
+    }
+    return ret;
+}
+static inline node_p merge_node(node_p x) {
+    uint prev_allocated = get_prev_allocated(x);
+    node_p next_neighbour = get_next_neighbour(x);
+    uint next_allocated = get_allocated(next_neighbour);
+    if (prev_allocated && next_allocated) {
+        return x;
+    }
+    if (prev_allocated && !next_allocated) {
+        if (next_neighbour == second_last_node || x == second_last_node) {
+            second_last_node = x;
+        }
+        erase_node(next_neighbour);
+        erase_node(x);
+
+        set_inf(x, get_block_size(x) + get_block_size(next_neighbour), 1, 0);
+        copy_head_2_foot(x);
+        insert_node(x);
+
+        return x;
+    }
+    if (!prev_allocated && next_allocated) {
+        node_p prev_neighbour = get_prev_neighbour(x);
+        if (x == second_last_node || prev_neighbour == second_last_node) {
+            second_last_node = prev_neighbour;
+        }
+        erase_node(x);
+        erase_node(prev_neighbour);
+
+        set_inf(prev_neighbour,
+                get_block_size(prev_neighbour) + get_block_size(x),
+                get_prev_allocated(prev_neighbour), 0);
+        copy_head_2_foot(prev_neighbour);
+        insert_node(prev_neighbour);
+
+        return prev_neighbour;
+    }
+    if (!prev_allocated && !next_allocated) {
+        node_p prev_neighbour = get_prev_neighbour(x);
+        if (next_neighbour == second_last_node || x == second_last_node ||
+            prev_neighbour == second_last_node) {
+            second_last_node = prev_neighbour;
+        }
+        erase_node(prev_neighbour);
+        erase_node(x);
+        erase_node(next_neighbour);
+
+        set_inf(prev_neighbour,
+                get_block_size(prev_neighbour) + get_block_size(x) +
+                    get_block_size(next_neighbour),
+                get_prev_allocated(prev_neighbour), 0);
+        copy_head_2_foot(prev_neighbour);
+        insert_node(prev_neighbour);
+
+        return prev_neighbour;
+    }
+}
+static inline node_p get_more_space(uint size) {
+    if (!get_allocated(second_last_node)) {
+        size -= get_block_size(second_last_node);
+    }
+    if (size <= 0) {
+        return second_last_node;
+    }
+    if (size < 16) {
+        size = 16;
+    }
+    node_p ret = mem_sbrk(size);
+    ret = (node_p)((void *)ret - 4);
+
+    set_inf(ret, size, get_allocated(second_last_node), 0);
+    copy_head_2_foot(ret);
+    insert_node(ret);
+
+    set_inf(get_next_neighbour(ret), 0, 0, 1);
+    ret = merge_node(ret);
+    // second_last_node = ret;
+    return ret;
+}
+static inline void allocate(node_p x, uint size) {
+    erase_node(x);
+    uint old_block_size = get_block_size(x);
+    if (old_block_size - size > 16) {
+        node_p next_neighbour = get_next_neighbour(x);
+        set_inf(next_neighbour, get_block_size(next_neighbour), 0,
+                get_allocated(next_neighbour));
+        set_inf(x, size, get_prev_allocated(x), 1);
+        next_neighbour = get_next_neighbour(x);
+        set_inf(next_neighbour, old_block_size - size, 1, 0);
+        copy_head_2_foot(next_neighbour);
+        insert_node(next_neighbour);
+        merge_node(next_neighbour);
+    } else {
+        set_inf(x, get_block_size(x), get_prev_allocated(x), 1);
+        node_p next_neighbour = get_next_neighbour(x);
+        set_inf(next_neighbour, get_block_size(next_neighbour), 1,
+                get_allocated(next_neighbour));
+    }
+}
+//自定义////////////////////////////////////////////////////////////////////////
+
+/*
+ * mm_init - initialize the malloc package.
+ */
+int mm_init(void) {
+    prepare_list();
+    void *p = mem_sbrk(4 * 4);
+    second_last_node = (node *)(p + 4);
+    uint *pp = (uint *)p;
+    pp[1] = make_inf(8, 1, 1);
+    pp[3] = make_inf(0, 1, 1);
+    return 0;
+}
+
+/*
+ * mm_malloc - Allocate a block by incrementing the brk pointer.
+ *     Always allocate a block whose size is a multiple of the alignment.
+ */
+void *mm_malloc(size_t size) {
+    size += 4;
+    size = ALIGN(size);
+    if (size < 16) {
+        size = 16;
+    }
+    node_p insert_p = find_fit(size);
+    if (!insert_p) {
+        insert_p = get_more_space(size);
+    }
+    if (insert_p == NULL) {
+        return NULL;
+    }
+    allocate(insert_p, size);
+    return get_ret_pointer(insert_p);
+}
+
+/*
+ * mm_free - Freeing a block does nothing.
+ */
+void mm_free(void *ptr) {
+    node_p x = (node_p)(ptr - 4);
+    set_inf(x, get_block_size(x), get_prev_allocated(x), 0);
+    copy_head_2_foot(x);
+    insert_node(x);
+    merge_node(x);
+}
+
+/*
+ * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
+ */
+void *mm_realloc(void *ptr, size_t size) {
+    if (ptr == NULL) {
+        return mm_malloc(size);
+    }
+    if (size == 0) {
+        mm_free(ptr);
+        return NULL;
+    }
+    size = ALIGN(size + 4);
+    if (get_block_size(ptr - 4) >= size) {
+        return ptr;
+    }
+    void *oldptr = ptr;
+    void *newptr;
+    size_t copySize;
+    newptr = mm_malloc(size);
+    if (newptr == NULL) return NULL;
+    copySize = min(size, get_useful_size(oldptr));
+    memcpy(newptr, oldptr, copySize);
+    mm_free(oldptr);
+    return newptr;
+}
+
+```
+
+对于堆栈合法性检查的一点思路
+
+```c
+
+int mm_check(void) {
+    for (int i = 1; i <= 5; i++) {
+        node_p x = begin + i;
+        while (get_block_size(x->next) > 0) {
+            x = x->next;
+            if (get_allocated(x->inf)) {
+                printf("有非空闲的块被错误地放到了空闲链表中\n");
+                return -1;
+            }
+        }
+    }
+    ///跳过第一个填充的4字节
+    void *x = very_begin + 4;
+    int last = 1;
+    while (get_block_size(x) > 0) {
+        if (last == 0 && get_allocated(x) == 0) {
+            printf("存在连续的空闲块未合并\n");
+            return -1;
+        }
+        last = get_allocated(x);
+        // 如果当前扫描到的内存块是空的
+        if (!get_allocated(x)) {
+            int have_found = 0;
+            // 遍历整个空闲链表
+            for (int i = 1; i <= 5; i++) {
+                node_p xx = begin + i;
+                while (get_block_size(xx->next) > 0) {
+                    xx = xx->next;
+                    if (xx == x) {
+                        have_found = 1;
+                    }
+                }
+            }
+            if (!have_found) {
+                printf("存在空闲但是没有加入空闲链表的块\n");
+                return -1;
+            }
+        }
+    }
+
+    return 1;
+}
+```
+
