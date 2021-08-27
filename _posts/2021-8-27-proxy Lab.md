@@ -566,6 +566,7 @@ int parse_uri(char* uri, char* host, char* port, char* path) {
 
 ![image-20210827105953919](../../www/assets/pic/image-20210827105953919.png)
 
-否则系统会找不到python解释器路径
+否则系统可能会找不到python解释器路径
 
-这小问只需要将[Part 1](#part1)中的
+这小问只需要将[Part 1](#Part 1 串行代理)中的
+
