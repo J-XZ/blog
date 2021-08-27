@@ -568,5 +568,24 @@ int parse_uri(char* uri, char* host, char* port, char* path) {
 
 否则系统可能会找不到python解释器路径
 
-这小问只需要将[Part 1](#Part 1 串行代理)中的
+这小问只需要将[Part 1](#jump)中的代理处理函数套到一个新的线程中执行即可
+
+要当心传入新进程的如果是指针，必须防止进程之间对共享变量发生竞争。但是我使用了C++11的线程类，并且只对线程传入值，所以方便地实现了这个功能。
+
+```c++
+thread t([connfd] {
+            cout << "connfd == " << connfd << endl;
+            do_proxy(connfd);
+            int times = 0;
+            while (close(connfd) < 0) {
+                times++;
+                if (times == 1000) {
+                    printf("关闭连接时出错");
+                }
+            }
+        });
+        t.detach();
+```
+
+
 
