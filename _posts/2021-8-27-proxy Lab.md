@@ -570,7 +570,7 @@ int parse_uri(char* uri, char* host, char* port, char* path) {
 
 这小问只需要将[Part 1](#jump)中的代理处理函数套到一个新的线程中执行即可
 
-要当心传入新进程的如果是指针，必须防止进程之间对共享变量发生竞争。但是我使用了C++11的线程类，并且只对线程传入值，所以方便地实现了这个功能。
+要当心传入新进程的如果是指针，必须防止进程之间对共享变量发生竞争。但是我使用了C++11的线程类，并且只对线程传入值，所以方便地实现了这个功能。直接将原本处理连接描述符的代码包到一个lambda表达式中，创建新线程即可。
 
 ```c++
 thread t([connfd] {
@@ -587,5 +587,369 @@ thread t([connfd] {
         t.detach();
 ```
 
+![image-20210827111604998](../../www/assets/pic/image-20210827111604998.png)
 
+---
+
+### Part 3
+
+对cache使用读者优先，使得多线程不会互相干扰
+
+<font color = red>必须注意：<br> 1、网页中会含有非ascii码字符（比如图片），还会含有未知的换行符等，不可以使用字符串处理函数去操作缓存的数据（很明显对于一个图片，strlen函数会返回错误的结果）<br>2、缓存操作会从内存申请数据，每次malloc都要对应一个free</font>
+
+```c++
+#include "internet"
+#include "iostream"
+#include "malloc.h"
+#include "rio"
+#include "semaphore.h"
+#include "string"
+#include "thread"
+using namespace std;
+int parse_uri(char* uri, char* host, char* port, char* path);
+void do_proxy(int fd);
+/* Recommended max cache and object sizes */
+#define MAX_CACHE_SIZE 1049000
+#define MAX_OBJECT_SIZE 102400
+/* You won't lose style points for including this long line in your code */
+static const char* user_agent_hdr =
+    "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 "
+    "Firefox/10.0.3\r\n";
+typedef struct cache_block {
+    bool valid = false;
+    int age;
+    string url;
+    uint len;
+    char* cacheing;
+} cache_block;
+class cache {
+   private:
+    sem_t read_count_mutex;
+    uint read_count = 0;
+    sem_t write_mutex;
+
+   public:
+    cache_block* block = new cache_block[10];
+    cache() {
+        sem_init(&read_count_mutex, 0, 1);
+        sem_init(&write_mutex, 0, 1);
+        for (int i = 0; i < 10; i++) {
+            block[i].valid = false;
+            block[i].age = 0;
+        }
+        read_count = 0;
+    }
+    // 读者优先
+    cache_block* get_cache(string url) {
+        sem_wait(&read_count_mutex);
+        read_count++;
+        if (read_count == 1)
+            sem_wait(&write_mutex);  // 第一个读者负责为所有读者加写锁
+        sem_post(&read_count_mutex);
+        cache_block* ret = NULL;
+        for (int i = 0; i < 10; i++) {
+            block[i].age++;
+            if (block[i].valid && block[i].url == url) {
+                ret = &block[i];
+                block[i].age = 0;
+            }
+        }
+        sem_wait(&read_count_mutex);
+        read_count--;
+        if (read_count == 0) sem_post(&write_mutex);  // 最后一个读者解写锁
+        sem_post(&read_count_mutex);
+        return ret;
+    }
+    void update_cache(string url, char* caching, uint len) {
+        cout << "缓存" << url << endl << "对应：";
+        for (int i = 0; i < len; i++) {
+            printf("%c", caching[i]);
+        }
+        cout << endl;
+        if (len > MAX_OBJECT_SIZE) {
+            return;
+        }
+        sem_wait(&write_mutex);
+        int oldset = 0, find_replace = 0;
+        for (int i = 0; i < 10; i++) {
+            if (block[i].age > oldset) {
+                oldset = block[i].age;
+                find_replace = i;
+            }
+        }
+        block[find_replace].cacheing =
+            (char*)realloc(block[find_replace].cacheing, len);
+        for (int i = 0; i < len; i++) {
+            block[find_replace].cacheing[i] = caching[i];
+        }
+        block[find_replace] = {true, 0, string(url), len,
+                               block[find_replace].cacheing};
+        sem_post(&write_mutex);
+    }
+};
+cache* my_cache = new cache();
+int main(int argc, char* argv[]) {
+    printf("正在启动代理\n");
+    int listenfd, connfd;
+    char hostname[MAXLINE], port[MAXLINE];
+    socklen_t clientlen;
+    struct sockaddr_storage clientaddr;
+
+    if (argc != 2) {  //不指定端口号参数就退出
+        fprintf(stderr, "usage:%s <port>\n", argv[0]);
+        return 1;
+    }
+
+    listenfd = -1;
+    int times = 0;
+    while (listenfd < 0) {
+        listenfd = open_listenfd(argv[1]);
+        times++;
+        if (times == 1000) {
+            printf("打开监听描述符时出现错误\n");
+            return 1;
+        }
+    }
+    while (1) {
+        printf("正在监听连接请求\n");
+        clientlen = sizeof(clientaddr);
+        connfd = accept(listenfd, (struct sockaddr*)&clientaddr, &clientlen);
+        cout << "连接成功" << endl;
+        if (connfd < 0) {
+            printf("未能成功与客户端建立连接,正在重试\n");
+            continue;
+        }
+        if (getnameinfo((struct sockaddr*)&clientaddr, clientlen, hostname,
+                        MAXLINE, port, MAXLINE, 0) == 0) {
+            printf("从(%s %s)建立连接\n", hostname, port);
+        }
+        thread t([connfd] {
+            cout << "connfd == " << connfd << endl;
+            do_proxy(connfd);
+            int times = 0;
+            while (close(connfd) < 0) {
+                times++;
+                if (times == 1000) {
+                    printf("关闭连接时出错");
+                }
+            }
+        });
+        t.detach();
+    }
+
+    return 0;
+}
+
+/* 为文件描述符fd对应的连接完成一次http代理 */
+void do_proxy(int fd) {
+    cout << "正在处理代理" << endl;
+    int is_static;
+    struct stat sbuf;  // 描述文件系统中文件属性的结构
+    char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
+    rio_t rio;
+    rio_readinitb(&rio, fd);
+    if (rio_readlineb(&rio, buf, MAXLINE) > 0) {
+        cout << "收到请求：" << endl;
+        cout << buf;
+    }
+    sscanf(buf, "%s %s %s", method, uri, version);
+    cout << "method: " << method << " url: " << uri << " version: " << version
+         << endl;
+    if (strcmp(method, "GET") == 0 && strlen(uri) > 0 &&
+        (strcmp(version, "HTTP/1.0") == 0 ||
+         strcmp(version, "HTTP/1.1") == 0)) {
+        strcpy(version, "HTTP/1.0");
+    } else {
+        cout << "收到的请求不合法" << endl;
+        return;
+    }
+
+    // 解析来自客户端的http get请求的第一行
+    char hostname[MAXLINE];
+    char path[MAXLINE];
+    char port[MAXLINE];
+    parse_uri(uri, hostname, port, path);
+    cout << "hostname = " << hostname << endl;
+    cout << "path = " << path << endl;
+    cout << "port = " << port << endl;
+
+    // 按照实验pdf的要求，将来自客户端的简易http请求修改部分内容
+    // HTTP请求的格式：
+    /***********************************
+     * 请求方法 URL 协议版本 \r\n
+     * 头部字段名1:值 \r\n
+     * 头部字段名2:值 \r\n
+     * 头部字段名3:值 \r\n
+     *  ··· ···
+     * \r\n
+     * 请求正文
+     * ********************************
+     * 其中头部字段名包括：
+     * Host: 接受请求的服务器地址，可以是ip:端口号，或者是域名
+     * User-Agent: 发送请求的应用程序名称
+     * Connection: 指定与连接相关的属性，比如是不是长连接
+     * Accept-Charset: 通知服务器端可以发送的编码格式
+     * Accept-Encoding: 通知服务器可以发送到数据压缩格式
+     * Accept-Language: 通知服务器可以发送的语言
+     * ··· ···
+     * ********************************
+     * 实验要求
+     * 必须有host字段
+     * User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305
+     *      Firefox/10.0.3 Connection:close
+     * Proxy-Connection:close
+     * **************/
+    // 解析来自客户端的http请求的更多行，并按要求设置一些数据
+    string http_request_head = "GET " + string(path) + " " + version + "\r\n";
+    bool have_host = false, have_user_agent = false,
+         have_proxy_connection = false;
+    while (rio_readlineb(&rio, buf, MAXLINE) > 0) {
+        cout << "@" << endl;
+        if (strcmp(buf, "\r\n") == 0) break;
+        string line = buf;
+        if (line.find("Host") == 0) {
+            have_host = true;
+        } else if (line.find("User-Agent") == 0) {
+            have_user_agent = true;
+            line = user_agent_hdr;
+        } else if (line.find("Proxy-Connection") == 0) {
+            have_proxy_connection = true;
+            line = "Proxy-Connection: close";
+        } else if (line.find("\r") == 0) {
+            continue;
+        }
+        if (line[line.length() - 1] == '\r')
+            line += "\n";
+        else
+            line += "\r\n";
+        http_request_head += line;
+    }
+    if (!have_host) {
+        http_request_head += "Host: " + string(hostname) + "\r\n";
+    }
+    if (!have_proxy_connection) {
+        http_request_head += "Proxy-Connection: close\r\n";
+    }
+    if (!have_user_agent) {
+        http_request_head += string(user_agent_hdr) + "\r\n";
+    }
+    http_request_head += "\r\n";  //最后一个空行表示http请求头的结束
+    cout << endl << "完整的http请求头为：" << endl;
+    cout << http_request_head << endl;
+    // 到这里完整的http请求构造完成
+    cache_block* ret = my_cache->get_cache(http_request_head);
+    if (ret) {
+        cout << "从cache中找到" << endl;
+        rio_writen(fd, ret->cacheing, ret->len);
+    } else {
+        //向目标主机发起连接
+        int server_fd = 0;
+        int times = 0;
+        while (server_fd <= 0) {
+            times++;
+            server_fd = open_clientfd(&hostname[0], port);
+            if (times == 10) {
+                cout << "连接目标主机时出错" << endl;
+                close(server_fd);
+                return;
+            }
+        }
+        cout << "向目标主机" << hostname << " " << port << "发起连接成功"
+             << endl;
+        rio_t server_rio;
+        rio_readinitb(&server_rio, server_fd);
+        rio_writen(server_fd, &http_request_head[0],
+                   http_request_head.length());
+        int len;
+        char* ret_value = NULL;
+        uint ret_len = 0;
+        while ((len = rio_readlineb(&server_rio, buf, MAXLINE)) > 0) {
+            ret_len += len;
+            ret_value = (char*)realloc(ret_value, ret_len);
+            for (int i = 0; i < len; i++) {
+                ret_value[ret_len - i - 1] = buf[len - i - 1];
+            }
+            times = 0;
+            while (rio_writen(fd, buf, len) < 0) {
+                times++;
+                if (times == 1000) {
+                    cout << "向请求申请端写回请求结果时出错" << endl;
+                    close(server_fd);
+                    return;
+                }
+            }
+        }
+        my_cache->update_cache(http_request_head, ret_value, ret_len);
+        free(ret_value);
+        close(server_fd);
+    }
+}
+
+int parse_uri(char* uri, char* host, char* port, char* path) {
+    const char* ptr;
+    const char* tmp;
+    char scheme[10];
+    int len;
+    int i;
+
+    ptr = uri;
+
+    tmp = strchr(ptr, ':');
+    if (NULL == tmp) return 0;
+
+    len = tmp - ptr;
+    (void)strncpy(scheme, ptr, len);
+    scheme[len] = '\0';
+    for (i = 0; i < len; i++) scheme[i] = tolower(scheme[i]);
+    if (strcasecmp(scheme, "http")) return 0;
+    tmp++;
+    ptr = tmp;
+
+    for (i = 0; i < 2; i++) {
+        if ('/' != *ptr) {
+            return 0;
+        }
+        ptr++;
+    }
+
+    tmp = ptr;
+    while ('\0' != *tmp) {
+        if (':' == *tmp || '/' == *tmp) break;
+        tmp++;
+    }
+    len = tmp - ptr;
+    (void)strncpy(host, ptr, len);
+    host[len] = '\0';
+
+    ptr = tmp;
+
+    if (':' == *ptr) {
+        ptr++;
+        tmp = ptr;
+        /* read port */
+        while ('\0' != *tmp && '/' != *tmp) tmp++;
+        len = tmp - ptr;
+        (void)strncpy(port, ptr, len);
+        port[len] = '\0';
+        ptr = tmp;
+    } else {
+        port = "80";
+    }
+
+    if ('\0' == *ptr) {
+        strcpy(path, "/");
+        return 1;
+    }
+
+    tmp = ptr;
+    while ('\0' != *tmp) tmp++;
+    len = tmp - ptr;
+    (void)strncpy(path, ptr, len);
+    path[len] = '\0';
+
+    return 1;
+}
+```
+
+![image-20210827142227751](../../www/assets/pic/image-20210827142227751.png)
 
