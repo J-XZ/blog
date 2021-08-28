@@ -1264,6 +1264,91 @@ void *mm_realloc(void *ptr, size_t size) {
 
 ```
 
+优化realloc函数，如果要求重新分配的块的后面一个块是空块，并且使用后面一个块扩充当前块可以满足重新分配内存的要求，则直接使用后一个块填充当前块
+
+```c
+void *mm_realloc(void *ptr, size_t size) {
+    if (ptr == NULL) {
+        return mm_malloc(size);
+    }
+    if (size == 0) {
+        mm_free(ptr);
+        return NULL;
+    }
+
+    size = ALIGN(size + 4);
+    if (get_block_size(ptr - 4) >= size) {
+        // allocate(ptr - 4, size);
+        return ptr;
+    } else if (!get_allocated(get_next_neighbour(ptr - 4)) &&
+               get_useful_size(ptr - 4) +
+                       get_useful_size(get_next_neighbour(ptr - 4)) >=
+                   size) {
+        if (get_next_neighbour(ptr - 4) == second_last_node) {
+            second_last_node = ptr - 4;
+        }
+        erase_node(get_next_neighbour(ptr - 4));
+        set_inf(ptr - 4,
+                get_block_size(ptr - 4) +
+                    get_block_size(get_next_neighbour(ptr - 4)),
+                get_prev_allocated(ptr - 4), 1);
+        set_inf(get_next_neighbour(ptr - 4),
+                get_block_size(get_next_neighbour(ptr - 4)), 1,
+                get_allocated(get_next_neighbour(ptr - 4)));
+        return ptr;
+    }
+    // if (!get_prev_allocated(ptr - 4) &&
+    //     get_useful_size(get_prev_neighbour(ptr - 4)) +
+    //             get_useful_size(ptr - 4) >=
+    //         size) {
+    //     node *prev_neighbour = get_prev_neighbour(ptr - 4);
+    //     erase_node(prev_neighbour);
+    //     if (ptr - 4 == second_last_node) {
+    //         second_last_node = prev_neighbour;
+    //     }
+    //     set_inf(prev_neighbour,
+    //             get_block_size(ptr - 4) + get_block_size(prev_neighbour),
+    //             get_prev_allocated(prev_neighbour), 1);
+    //     set_inf(get_next_neighbour(prev_neighbour),
+    //             get_block_size(get_next_neighbour(prev_neighbour)), 1,
+    //             get_allocated(get_next_neighbour(prev_neighbour)));
+    //     memcpy((void *)prev_neighbour + 4, (void *)ptr,
+    //            get_useful_size(ptr - 4));
+    //     return get_ret_pointer(prev_neighbour);
+    // }
+
+    // node_p this_node = (void *)ptr - 4;
+    // uint num1 = *(uint *)ptr;
+    // uint num2 = *(uint *)((void *)ptr + 4);
+    // uint old_block_size = get_block_size(this_node);
+    // uint foot1 = *((uint *)(((void *)this_node) + old_block_size - 4));
+    // mm_free(ptr);
+    // node_p new_ptr = (node_p)(mm_malloc(size) - 4);
+    // size_t copySize = min(size, old_block_size - 4);
+    // memcpy((void *)new_ptr + 4, (void *)ptr, copySize);
+    // *(uint *)(&(new_ptr->next)) = num1;
+    // *(uint *)(&(new_ptr->prev)) = num2;
+    // uint new_block_size = get_block_size(new_ptr);
+    // if (new_block_size >= old_block_size) {
+    //     *((uint *)(((void *)new_ptr) + old_block_size - 4)) = foot1;
+    // }
+    // return get_ret_pointer(new_ptr);
+
+    void *oldptr = ptr;
+    void *newptr;
+    size_t copySize;
+    newptr = mm_malloc(size);
+    if (newptr == NULL) return NULL;
+    copySize = min(size, get_useful_size(oldptr - 4));
+    memcpy(newptr, oldptr, copySize);
+    mm_free(oldptr);
+    return newptr;
+}
+
+```
+
+![image-20210828233723125](../../www/assets/pic/image-20210828233723125.png)
+
 对于堆栈合法性检查的一点思路
 
 ```c
