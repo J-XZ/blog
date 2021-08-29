@@ -1397,3 +1397,370 @@ int mm_check(void) {
 }
 ```
 
+---
+
+---
+
+后续又修改了一些小bug
+
+```c
+/*
+ * mm-naive.c - The fastest, least memory-efficient malloc package.
+ *
+ * In this naive approach, a block is allocated by simply incrementing
+ * the brk pointer.  A block is pure payload. There are no headers or
+ * footers.  Blocks are never coalesced or reused. Realloc is
+ * implemented directly using mm_malloc and mm_free.
+ *
+ * NOTE TO STUDENTS: Replace this header comment with your own header
+ * comment that gives a high level description of your solution.
+ */
+#include "mm.h"
+
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "memlib.h"
+
+/*********************************************************
+ * NOTE TO STUDENTS: Before you do anything else, please
+ * provide your team information in the following struct.
+ ********************************************************/
+team_t team = {
+    /* Team name */
+    "ateam",
+    /* First member's full name */
+    "Harry Bovik",
+    /* First member's email address */
+    "bovik@cs.cmu.edu",
+    /* Second member's full name (leave blank if none) */
+    "",
+    /* Second member's email address (leave blank if none) */
+    ""};
+
+/* single word (4) or double word (8) alignment */
+#define ALIGNMENT 8
+
+/* rounds up to the nearest multiple of ALIGNMENT */
+#define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~0x7)
+
+#define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
+
+//自定义////////////////////////////////////////////////////////////////////////
+#define min(x, y) (x < y ? x : y)
+typedef unsigned int uint;
+typedef unsigned long ulong;
+typedef struct node {
+    uint inf;
+    struct node *prev;
+    struct node *next;
+} node, *node_p;
+static const uint mask1_1000 = ~(uint)0b111;
+static const uint mask0_0010 = (uint)0b10;
+static const uint mask0_0001 = (uint)0b1;
+static inline uint get_block_size(node_p x) {
+    uint inf = x->inf;
+    return inf & mask1_1000;
+}
+static inline int get_useful_size(node_p x) { return get_block_size(x) - 4; }
+static inline uint get_prev_allocated(node_p x) {
+    uint inf = x->inf;
+    return inf & mask0_0010;
+}
+static inline uint get_allocated(node_p x) {
+    uint inf = x->inf;
+    return inf & mask0_0001;
+}
+static inline void *get_prev_foot(node_p x) {
+    if (!get_prev_allocated(x)) {
+        void *ret = x;
+        ret -= 4;
+        return ((node *)ret);
+    }
+    printf("error!");
+    return NULL;
+}
+static inline uint make_inf(uint size, uint is_prev_allocated,
+                            uint is_allocated) {
+    uint value = size;
+    value &= mask1_1000;
+    value |= (uint)(is_prev_allocated ? 0b10 : 0);
+    value |= (uint)(is_allocated ? 0b1 : 0);
+    return value;
+}
+static inline node_p get_ret_pointer(node_p x) {
+    void *ret = x;
+    ret += 4;
+    return ret;
+}
+static inline node_p get_next_neighbour(node_p x) {
+    void *ret = (void *)x;
+    ret += get_block_size(x);
+    return (node_p)ret;
+}
+static inline node_p get_prev_neighbour(node_p x) {
+    if (!get_prev_allocated(x)) {
+        uint foot = *(uint *)get_prev_foot(x);
+        uint prev_block_size = foot & mask1_1000;
+        void *ret = (void *)x;
+        ret -= prev_block_size;
+        return ret;
+    } else {
+        printf("error\n");
+        return NULL;
+    }
+}
+static inline void copy_head_2_foot(node_p x) {
+    void *foot = x;
+    foot += get_block_size(x) - 4;
+    *(uint *)foot = x->inf;
+}
+static inline void set_inf(node_p x, uint size, uint is_prev_allocated,
+                           uint is_allocated) {
+    uint value = size;
+    value &= mask1_1000;
+    value |= (uint)(is_prev_allocated ? 0b10 : 0);
+    value |= (uint)(is_allocated ? 0b1 : 0);
+    x->inf = value;
+    if (!is_allocated) {
+        copy_head_2_foot(x);
+    }
+}
+static node begin[10];
+static node end[10];
+static inline uint get_index(uint x) {
+    return (x <= 64 ? (x <= 32 ? (x <= 16 ? 1 : 2) : 3) : (x <= 128 ? 4 : 5));
+}
+static inline void prepare_list() {
+    for (int i = 0; i < 9; i++) {
+        begin[i].next = &end[i];
+        end[i].prev = &begin[i];
+    }
+}
+static inline void insert_node(node_p x) {
+    node_p start = &begin[get_index(get_block_size(x))];
+    node_p second = start->next;
+    start->next = x;
+    x->next = second;
+    x->prev = start;
+    second->prev = x;
+}
+static inline void erase_node(node_p x) {
+    node_p prev = x->prev;
+    node_p next = x->next;
+    prev->next = next;
+    next->prev = prev;
+}
+static node_p second_last_node;
+static inline node_p find_fit(uint size) {
+    node_p x = &begin[get_index(size)];
+    node_p ret = NULL;
+    uint min_size = __INT_MAX__;
+    while (get_useful_size(x->next) > 0) {
+        x = x->next;
+        uint tmp_size = get_block_size(x);
+        if (tmp_size >= size) {
+            if (tmp_size < min_size) {
+                min_size = tmp_size;
+                ret = x;
+            }
+        }
+    }
+    return ret;
+}
+static inline node_p merge_node(node_p x) {
+    uint prev_allocated = get_prev_allocated(x);
+    node_p next_neighbour = get_next_neighbour(x);
+    uint next_allocated = get_allocated(next_neighbour);
+    if (prev_allocated && next_allocated) {
+        return x;
+    } else if (prev_allocated && !next_allocated) {
+        if (next_neighbour == second_last_node || x == second_last_node) {
+            second_last_node = x;
+        }
+        erase_node(next_neighbour);
+        erase_node(x);
+
+        set_inf(x, get_block_size(x) + get_block_size(next_neighbour),
+                get_prev_allocated(x), 0);
+        insert_node(x);
+
+        return x;
+    } else if (!prev_allocated && next_allocated) {
+        node_p prev_neighbour = get_prev_neighbour(x);
+        if (x == second_last_node || prev_neighbour == second_last_node) {
+            second_last_node = prev_neighbour;
+        }
+        erase_node(x);
+        erase_node(prev_neighbour);
+
+        set_inf(prev_neighbour,
+                get_block_size(prev_neighbour) + get_block_size(x),
+                get_prev_allocated(prev_neighbour), 0);
+        insert_node(prev_neighbour);
+
+        return prev_neighbour;
+    } else if (!prev_allocated && !next_allocated) {
+        node_p prev_neighbour = get_prev_neighbour(x);
+        if (next_neighbour == second_last_node || x == second_last_node ||
+            prev_neighbour == second_last_node) {
+            second_last_node = prev_neighbour;
+        }
+        erase_node(prev_neighbour);
+        erase_node(x);
+        erase_node(next_neighbour);
+
+        set_inf(prev_neighbour,
+                get_block_size(prev_neighbour) + get_block_size(x) +
+                    get_block_size(next_neighbour),
+                get_prev_allocated(prev_neighbour), 0);
+        // copy_head_2_foot(prev_neighbour);
+        insert_node(prev_neighbour);
+
+        return prev_neighbour;
+    }
+    return x;
+}
+static inline node_p get_more_space(uint size) {
+    if (!get_allocated(second_last_node)) {
+        size -= get_block_size(second_last_node);
+    }
+    if (size <= 0) {
+        return second_last_node;
+    }
+    if (size < 16) {
+        size = 16;
+    }
+    node_p ret = mem_sbrk(size);
+    ret = (node_p)((void *)ret - 4);
+
+    set_inf(ret, size, get_allocated(second_last_node), 0);
+    // copy_head_2_foot(ret);
+    insert_node(ret);
+
+    set_inf(get_next_neighbour(ret), 0, 0, 1);
+    ret = merge_node(ret);
+    return ret;
+}
+
+static inline void allocate(node_p x, uint size) {
+    erase_node(x);
+    uint old_block_size = get_block_size(x);
+    if (old_block_size - size >= 16) {
+        node_p next_neighbour = get_next_neighbour(x);
+
+        set_inf(next_neighbour, get_block_size(next_neighbour), 0,
+                get_allocated(next_neighbour));
+
+        set_inf(x, size, get_prev_allocated(x), 1);
+
+        next_neighbour = get_next_neighbour(x);
+        set_inf(next_neighbour, old_block_size - size, 1, 0);
+        insert_node(next_neighbour);
+        if (x == second_last_node) {
+            second_last_node = next_neighbour;
+        }
+        merge_node(next_neighbour);
+    } else {
+        set_inf(x, get_block_size(x), get_prev_allocated(x), 1);
+        node_p next_neighbour = get_next_neighbour(x);
+        set_inf(next_neighbour, get_block_size(next_neighbour), 1,
+                get_allocated(next_neighbour));
+    }
+}
+//自定义////////////////////////////////////////////////////////////////////////
+
+/*
+ * mm_init - initialize the malloc package.
+ */
+int mm_init(void) {
+    prepare_list();
+    void *p = mem_sbrk(4 * 4);
+    second_last_node = (node *)(p + 4);
+    uint *pp = (uint *)p;
+    pp[1] = make_inf(8, 1, 1);
+    pp[3] = make_inf(0, 1, 1);
+    return 0;
+}
+
+/*
+ * mm_malloc - Allocate a block by incrementing the brk pointer.
+ *     Always allocate a block whose size is a multiple of the alignment.
+ */
+void *mm_malloc(size_t size) {
+    size += 4;
+    size = ALIGN(size);
+    if (size < 16) {
+        size = 16;
+    }
+    node_p insert_p = find_fit(size);
+    if (!insert_p) {
+        insert_p = get_more_space(size);
+    }
+    if (insert_p == NULL) {
+        return NULL;
+    }
+    allocate(insert_p, size);
+    return get_ret_pointer(insert_p);
+}
+
+/*
+ * mm_free - Freeing a block does nothing.
+ */
+void mm_free(void *ptr) {
+    node_p x = (node_p)(ptr - 4);
+    set_inf(x, get_block_size(x), get_prev_allocated(x), 0);
+    insert_node(x);
+    merge_node(x);
+}
+
+/*
+ * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
+ */
+void *mm_realloc(void *ptr, size_t size) {
+    if (ptr == NULL) {
+        return mm_malloc(size);
+    }
+    if (size == 0) {
+        mm_free(ptr);
+        return NULL;
+    }
+    uint oldsize = size;
+    size = ALIGN(size + 4);
+    if (get_block_size(ptr - 4) >= size) {
+        // allocate(ptr - 4, size);
+        return ptr;
+    } else if (!get_allocated(get_next_neighbour(ptr - 4)) &&
+               get_useful_size(ptr - 4) +
+                       get_useful_size(get_next_neighbour(ptr - 4)) >=
+                   size) {
+        if (get_next_neighbour(ptr - 4) == second_last_node) {
+            second_last_node = ptr - 4;
+        }
+        erase_node(get_next_neighbour(ptr - 4));
+        set_inf(ptr - 4,
+                get_block_size(ptr - 4) +
+                    get_block_size(get_next_neighbour(ptr - 4)),
+                get_prev_allocated(ptr - 4), 1);
+        set_inf(get_next_neighbour(ptr - 4),
+                get_block_size(get_next_neighbour(ptr - 4)), 1,
+                get_allocated(get_next_neighbour(ptr - 4)));
+        return ptr;
+    }
+    void *oldptr = ptr;
+    void *newptr;
+    size_t copySize;
+    newptr = mm_malloc(oldsize);
+    if (newptr == NULL) return NULL;
+    copySize = min(size, get_useful_size(oldptr - 4));
+    memcpy(newptr, oldptr, copySize);
+    mm_free(oldptr);
+    return newptr;
+}
+
+```
+
+![image-20210829154402215](../../www/assets/pic/image-20210829154402215.png)
