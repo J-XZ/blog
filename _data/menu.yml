@@ -23,6 +23,13 @@ entries:
       show_more: true
       show_more_text: See more posts...
       show_more_url: SICP.html
+  - title: Something about reading papers
+    post_list:
+      category: papers
+      limit: 5
+      show_more: true
+      show_more_text: See more posts...
+      show_more_url: papers.html
   - title: all posts
     post_list:
       limit: 5
