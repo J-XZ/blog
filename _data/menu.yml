@@ -30,9 +30,17 @@ entries:
       show_more: true
       show_more_text: See more posts...
       show_more_url: papers.html
+  - title: Something about Algorithms
+    post_list:
+      category: algorithms
+      limit: 5
+      show_more: true
+      show_more_text: See more posts...
+      show_more_url: algorithms.html
   - title: all posts
     post_list:
-      limit: 5
+      limit: 3
       show_more: true
       show_more_text: See archive...
       show_more_url: archive.html
+  
