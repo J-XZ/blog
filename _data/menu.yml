@@ -37,6 +37,13 @@ entries:
       show_more: true
       show_more_text: See more posts...
       show_more_url: algorithms.html
+  - title: Something about rocksdb
+    post_list:
+      category: rocksdb
+      limit: 10
+      show_more: true
+      show_more_text: See more posts...
+      show_more_url: rocksdb.html
   - title: all posts
     post_list:
       limit: 3
